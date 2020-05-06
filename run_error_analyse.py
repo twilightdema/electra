@@ -217,7 +217,7 @@ class ModelRunner(object):
             r[task_name]["token_type_ids"],
             r[task_name]["logits"] if "logits" in r[task_name] else None,
             r[task_name]["predictions"],
-            r[task_name]["label_ids"],
+            r[task_name]["label_ids"] if "label_ids" in r[task_name] else r[task_name]['targets'],
             )
 
     print('[RESULT]')
@@ -318,7 +318,7 @@ def main():
                       help="The name of the model being fine-tuned.")
   parser.add_argument("--hparams", default="{}",
                       help="JSON dict of model hyperparameters.")
-  parser.add_argument("--init-from-checkpoint", required=True, 
+  parser.add_argument("--init-from-checkpoint", required=True,
                       help="Directory of trained finetune model to run error analysis")
   args = parser.parse_args()
   if args.hparams.endswith(".json"):
