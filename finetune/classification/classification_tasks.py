@@ -145,6 +145,8 @@ class SingleOutputTask(task.Task):
         "segment_ids": segment_ids,
         "task_id": self.config.task_names.index(self.name),
         self.name + "_eid": eid,
+        #"text_a": example.text_a,
+        #"text_b": example.text_b,
     }
     self._add_features(features, example, log)
     return features
@@ -230,7 +232,12 @@ class RegressionTask(SingleOutputTask):
         loss=losses,
         predictions=predictions,
         targets=features[self.name + "_targets"],
-        eid=features[self.name + "_eid"]
+        eid=features[self.name + "_eid"],
+        input_ids=features["input_ids"],
+        input_mask=features["input_mask"],
+        token_type_ids=features["segment_ids"],      
+        #text_a=features["text_a"],
+        #text_b=features["text_b"],
     )
     return losses, outputs
 
@@ -286,6 +293,11 @@ class ClassificationTask(SingleOutputTask):
         predictions=tf.argmax(logits, axis=-1),
         label_ids=label_ids,
         eid=features[self.name + "_eid"],
+        input_ids=features["input_ids"],
+        input_mask=features["input_mask"],
+        token_type_ids=features["segment_ids"],
+        #text_a=features["text_a"],
+        #text_b=features["text_b"],
     )
     return losses, outputs
 

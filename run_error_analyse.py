@@ -32,7 +32,7 @@ from model import modeling
 from model import optimization
 from util import training_utils
 from util import utils
-
+from model import tokenization
 
 class FinetuningModel(object):
   """Finetuning model with support for multi-task training."""
@@ -60,7 +60,9 @@ class FinetuningModel(object):
                     tf.cast(num_train_steps, tf.float32))
 
     # Add specific tasks
-    self.outputs = {"task_id": features["task_id"]}
+    self.outputs = {
+      "task_id": features["task_id"],
+    }
     losses = []
     for task in tasks:
       with tf.variable_scope("task_specific/" + task.name):
@@ -196,7 +198,7 @@ class ModelRunner(object):
     else:
       return scorer
 
-  def write_classification_outputs(self, tasks, trial, split):
+  def write_classification_outputs(self, tasks, trial, split, config: configure_finetuning.FinetuningConfig):
     """Write classification predictions to disk."""
     utils.log("Writing out predictions for", tasks, split)
     predict_input_fn, _ = self._preprocessor.prepare_predict(tasks, split)
@@ -209,15 +211,36 @@ class ModelRunner(object):
         r = utils.nest_dict(r, self._config.task_names)
         task_name = self._config.task_names[r["task_id"]]
         logits[task_name][r[task_name]["eid"]] = (
-            r[task_name]["logits"] if "logits" in r[task_name]
-            else r[task_name]["predictions"])
+            r[task_name]["eid"],
+            r[task_name]["input_ids"],
+            r[task_name]["input_mask"],
+            r[task_name]["token_type_ids"],
+            r[task_name]["logits"] if "logits" in r[task_name] else None,
+            r[task_name]["predictions"],
+            r[task_name]["label_ids"],
+            )
+
+    print('[RESULT]')
+
+    tokenizer = tokenization.FullTokenizer(vocab_file=config.vocab_file,
+              do_lower_case=config.do_lower_case)
+
     for task_name in logits:
-      utils.log("Pickling predictions for {:} {:} examples ({:})".format(
+      utils.log("Saving Dev Error Analysis for {:} {:} examples ({:})".format(
           len(logits[task_name]), task_name, split))
       if trial <= self._config.n_writes_test:
-        utils.write_pickle(logits[task_name], self._config.test_predictions(
-            task_name, split, trial))
+        print('Write to: ' + self._config.dev_analysis(task_name, split, trial))
+        with open(self._config.dev_analysis(task_name, split, trial), 'w', encoding='utf-8') as fout:
+          fout.write('ID\tINPUT\tLOGITS\tPREDICTION\tLABEL\n')
+          for eid in logits[task_name]:
+            print('=>' + str(eid))
+            (_, input_id, input_mask, token_type_id, logit, prediction, label_id) = logits[task_name][eid]
+            input_tokens = tokenizer.convert_ids_to_tokens(input_id)
+            input_tokens = filter(lambda x: x != '[PAD]', input_tokens)
+            input_tokens = ' '.join(input_tokens)
 
+            fout.write(str(eid)+'\t'+str(input_tokens)+'\t'+str(logit)+'\t'+str(prediction)+'\t'+str(label_id)+'\n')
+            print('Inputs: ' + str(input_tokens) + ', Logits: ' + str(logit) + ', Predictions: ' + str(prediction) + ', Labels: ' + str(label_id))
 
 def write_results(config: configure_finetuning.FinetuningConfig, results):
   """Write evaluation metrics to disk."""
@@ -267,7 +290,7 @@ def run_analyse(config: configure_finetuning.FinetuningConfig, pretraining_confi
           # Currently only writing preds for GLUE and SQuAD 2.0 is supported
           if task.name in ["cola", "mrpc", "mnli", "sst", "rte", "qnli", "qqp",
                            "sts"]:
-            model_runner.write_classification_outputs([task], trial, "dev")
+            model_runner.write_classification_outputs([task], trial, "dev", config)
           elif task.name == "squad":
             scorer = model_runner.evaluate_task(task, "dev", False)
             scorer.write_predictions()

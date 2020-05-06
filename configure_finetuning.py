@@ -126,6 +126,9 @@ class FinetuningConfig(object):
     self.test_predictions = os.path.join(
         pretrained_model_dir, "test_predictions",
         "{:}_{:}_{:}_predictions.pkl").format
+    self.dev_analysis = os.path.join(
+        pretrained_model_dir, "test_predictions",
+        "{:}_{:}_{:}_dev_analysis.csv").format
 
     # update defaults with passed-in hyperparameters
     self.update(kwargs)
