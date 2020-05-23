@@ -1,4 +1,5 @@
 env
 data_dir
 glue_data
+openwebtext_data
 __pycache__
