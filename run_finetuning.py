@@ -88,7 +88,7 @@ def model_fn_builder(config: configure_finetuning.FinetuningConfig, tasks,
     init_checkpoint = config.init_checkpoint
     if pretraining_config is not None:
       init_checkpoint = tf.train.latest_checkpoint(pretraining_config.model_dir)
-      utils.log("Using checkpoint", init_checkpoint)
+    utils.log(">>>>> Using checkpoint", init_checkpoint)
     tvars = tf.trainable_variables()
     scaffold_fn = None
     if init_checkpoint:
