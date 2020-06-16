@@ -33,6 +33,7 @@ class PretrainingConfig(object):
 
     # loss functions
     self.electra_objective = True  # if False, use the BERT objective instead
+    self.ae_weight = 50.0  # autoencoder loss
     self.gen_weight = 1.0  # masked language modeling / generator loss
     self.disc_weight = 50.0  # discriminator loss
     self.mask_prob = 0.15  # percent of input tokens to mask out / replace
@@ -68,8 +69,13 @@ class PretrainingConfig(object):
     self.untied_generator_embeddings = False  # tie generator/discriminator
                                               # token embeddings?
     self.untied_generator = True  # tie all generator/discriminator weights?
+    self.untied_autoencoder_embeddings = False  # tie autoencoder/discriminator
+                                              # token embeddings?
+    self.untied_autoencoder = True  # tie all autoencoder/discriminator weights?
     self.generator_layers = 1.0  # frac of discriminator layers for generator
     self.generator_hidden_size = 0.25  # frac of discrim hidden size for gen
+    self.autoencoder_layers = 1.0  # frac of discriminator layers for autoencoder
+    self.autoencoder_hidden_size = 0.25  # frac of discrim hidden size for autoencoder
     self.disallow_correct = False  # force the generator to sample incorrect
                                    # tokens (so 15% of tokens are always
                                    # fake)

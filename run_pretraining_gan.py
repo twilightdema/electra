@@ -48,14 +48,29 @@ class PretrainingModel(object):
       self._bert_config.intermediate_size = 144 * 4
       self._bert_config.num_attention_heads = 4
 
-    # Mask the input
-    masked_inputs = pretrain_helpers.mask(
-        config, pretrain_data.features_to_inputs(features), config.mask_prob)
+    inputs = pretrain_data.features_to_inputs(features)
 
-    # Generator
     embedding_size = (
         self._bert_config.hidden_size if config.embedding_size is None else
         config.embedding_size)
+
+    # Auto-Encoder
+    autoencoder = self._build_transformer(
+        inputs, is_training,
+        bert_config=get_autoencoder_config(config, self._bert_config),
+        embedding_size=(None if config.untied_autoencoder_embeddings
+                        else embedding_size),
+        untied_embeddings=config.untied_autoencoder_embeddings,
+        name="autoencoder")
+    ae_output = self._get_autoencoder_output(inputs, autoencoder)
+    self.ae_output = ae_output
+    self.total_loss = config.ae_weight * ae_output.loss
+
+    # Mask the input
+    masked_inputs = pretrain_helpers.mask(
+        config, inputs, config.mask_prob)
+
+    # Generator
     if config.uniform_generator:
       mlm_output = self._get_masked_lm_output(masked_inputs, None)
     elif config.electra_objective and config.untied_generator:
@@ -73,7 +88,7 @@ class PretrainingModel(object):
       mlm_output = self._get_masked_lm_output(masked_inputs, generator)
     fake_data = self._get_fake_data(masked_inputs, mlm_output.logits)
     self.mlm_output = mlm_output
-    self.total_loss = config.gen_weight * mlm_output.loss
+    self.total_loss += config.gen_weight * mlm_output.loss
 
     # Discriminator
     disc_output = None
@@ -88,6 +103,8 @@ class PretrainingModel(object):
     # Evaluation
     eval_fn_inputs = {
         "input_ids": masked_inputs.input_ids,
+        "ae_preds": ae_output.preds,
+        "ae_loss": ae_output.per_example_loss,
         "masked_lm_preds": mlm_output.preds,
         "mlm_loss": mlm_output.per_example_loss,
         "masked_lm_ids": masked_inputs.masked_lm_ids,
@@ -110,6 +127,15 @@ class PretrainingModel(object):
       """Computes the loss and accuracy of the model."""
       d = {k: arg for k, arg in zip(eval_fn_keys, args)}
       metrics = dict()
+
+      metrics["ae_accuracy"] = tf.metrics.accuracy(
+          labels=tf.reshape(d["input_ids"], [-1]),
+          predictions=tf.reshape(d["ae_preds"], [-1]),
+          weights=tf.reshape(d["input_mask"], [-1]))
+      metrics["ae_loss"] = tf.metrics.mean(
+          values=tf.reshape(d["ae_loss"], [-1]),
+          weights=tf.reshape(d["input_mask"], [-1]))
+
       metrics["masked_lm_accuracy"] = tf.metrics.accuracy(
           labels=tf.reshape(d["masked_lm_ids"], [-1]),
           predictions=tf.reshape(d["masked_lm_preds"], [-1]),
@@ -138,6 +164,44 @@ class PretrainingModel(object):
               weights=d["disc_labels"] * d["input_mask"])
       return metrics
     self.eval_metrics = (metric_fn, eval_fn_values)
+
+  def _get_autoencoder_output(self, inputs: pretrain_data.Inputs, model):
+    """Auto-Encoder softmax layer."""
+    with tf.variable_scope("autoencoder_predictions"):
+      relevant_hidden = model.get_sequence_output()
+      hidden = tf.layers.dense(
+          relevant_hidden,
+          units=modeling.get_shape_list(model.get_embedding_table())[-1],
+          activation=modeling.get_activation(self._bert_config.hidden_act),
+          kernel_initializer=modeling.create_initializer(
+              self._bert_config.initializer_range))
+      hidden = modeling.layer_norm(hidden)
+      output_bias = tf.get_variable(
+          "output_bias",
+          shape=[self._bert_config.vocab_size],
+          initializer=tf.zeros_initializer())
+      logits = tf.matmul(hidden, model.get_embedding_table(),
+                          transpose_b=True)
+      logits = tf.nn.bias_add(logits, output_bias)
+
+      oh_labels = tf.one_hot(
+          inputs.input_ids, depth=self._bert_config.vocab_size,
+          dtype=tf.float32)
+
+      probs = tf.nn.softmax(logits)
+      log_probs = tf.nn.log_softmax(logits)
+      label_log_probs = -tf.reduce_sum(log_probs * oh_labels, axis=-1)
+
+      numerator = tf.reduce_sum(inputs.input_mask * label_log_probs)
+      denominator = tf.reduce_sum(inputs.input_mask) + 1e-6
+      loss = numerator / denominator
+      preds = tf.argmax(log_probs, axis=-1, output_type=tf.int32)
+
+      AEOutput = collections.namedtuple(
+          "AEOutput", ["logits", "probs", "loss", "per_example_loss", "preds"])
+      return AEOutput(
+          logits=logits, probs=probs, per_example_loss=label_log_probs,
+          loss=loss, preds=preds)
 
   def _get_masked_lm_output(self, inputs: pretrain_data.Inputs, model):
     """Masked language modeling softmax layer."""
