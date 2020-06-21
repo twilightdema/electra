@@ -26,7 +26,7 @@ import tensorflow.compat.v1 as tf
 import build_pretraining_dataset
 from util import utils
 
-MAX_DATA_ROW = 5000
+MAX_DATA_ROW = 80
 
 def write_examples(job_id, args):
   """A single process creating and writing out pre-processed examples."""
@@ -55,7 +55,7 @@ def write_examples(job_id, args):
   start_time = time.time()
   count = 0
   for file_no, fname in enumerate(fnames):
-    if count > MAX_DATA_ROW:
+    if count >= MAX_DATA_ROW:
       break
     count = count + 1
     if file_no > 0 and file_no % 10 == 0:
